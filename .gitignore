@@ -61,3 +61,8 @@ dkms.conf
 section-02/s-exercises/exercise4/vault.c
 section-02/s-exercises/exercise4/Makefile
 !section-02/s-exercises/exercise4/vault.elf
+# Build output
+build/
+
+# clangd index
+.cache/
