@@ -18,7 +18,8 @@ typedef enum
     DAQ_ERR_EMPTY,
     DAQ_ERR_TRANSMIT,
     DAQ_ERR_ACQUIRE,
-    DAQ_ERR_TX_BUSY
+    DAQ_ERR_TX_BUSY,
+    DAQ_ERR_RECEIVE
 } DaqStatus;
 
 #endif

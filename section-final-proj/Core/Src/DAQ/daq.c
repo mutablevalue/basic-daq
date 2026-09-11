@@ -169,13 +169,11 @@ DaqStatus daq_acquire_start(Daq *daq)
         return DAQ_ERR_ACQUIRE;
     }
 
-    // ADC_BUF_LEN counts transfers, not bytes
     if (HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adcBuf, ADC_BUF_LEN) != HAL_OK)
     {
         return DAQ_ERR_ACQUIRE;
     }
 
-    // the ADC has to be armed before the first edge
     if (HAL_TIM_Base_Start(&htim3) != HAL_OK)
     {
         return DAQ_ERR_ACQUIRE;
@@ -196,8 +194,6 @@ DaqStatus daq_service_tx(Daq *daq)
         return DAQ_ERR_NOT_INITIALIZED;
     }
 
-    // checked before draining, refilling a buffer the DMA still reads
-    // would corrupt the frame in flight
     if (daq_uart_busy())
     {
         return DAQ_ERR_TX_BUSY;

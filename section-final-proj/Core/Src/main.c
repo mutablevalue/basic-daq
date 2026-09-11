@@ -48,6 +48,7 @@ DMA_HandleTypeDef hdma_adc1;
 
 UART_HandleTypeDef hlpuart1;
 DMA_HandleTypeDef hdma_lpuart1_tx;
+DMA_HandleTypeDef hdma_lpuart1_rx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -62,6 +63,8 @@ const osThreadAttr_t txTask_attributes = {.name = "txTask",
 #define DAQ_BUFFER_LEN 256U
 static DAQSample daqSamples[DAQ_BUFFER_LEN];
 static Daq daq;
+
+#define DAQ_RX_CHUNK_LENGTH 64U
 
 /* USER CODE END PV */
 
@@ -81,7 +84,17 @@ void TxTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void DrainRx(void)
+{
+    uint8_t command[DAQ_RX_CHUNK_LENGTH];
+    uint16_t count;
 
+    // one event can cover more than a chunk, so drain until it runs dry
+    while (daq_uart_receive(command, DAQ_RX_CHUNK_LENGTH, &count) == DAQ_OK)
+    {
+        (void)count; // framing goes here
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -440,6 +453,9 @@ static void MX_DMA_Init(void)
     /* DMA1_Channel2_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+    /* DMA1_Channel3_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
 }
 
 /**
@@ -502,6 +518,13 @@ void TxTask(void *argument)
     (void)argument; // no need
 
     daq_uart_set_consumer(txTaskHandle, DAQ_TX_EVENT);
+    daq_uart_set_rx_consumer(txTaskHandle, DAQ_RX_EVENT);
+
+    // armed before acquisition so a byte arriving first still has a consumer
+    if (daq_uart_receive_start() != DAQ_OK)
+    {
+        Error_Handler();
+    }
 
     // started here so no block callback can run before the scheduler does
     if (daq_acquire_start(&daq) != DAQ_OK)
@@ -511,8 +534,24 @@ void TxTask(void *argument)
 
     for (;;)
     {
-        (void)osThreadFlagsWait(DAQ_TX_EVENT, osFlagsWaitAny, osWaitForever);
-        (void)daq_service_tx(&daq);
+        uint32_t flags = osThreadFlagsWait(DAQ_TX_EVENT | DAQ_RX_EVENT,
+                                           osFlagsWaitAny, osWaitForever);
+
+        // the failure codes share the word with the flags
+        if ((flags & osFlagsError) != 0U)
+        {
+            continue;
+        }
+
+        if ((flags & DAQ_RX_EVENT) != 0U)
+        {
+            DrainRx();
+        }
+
+        if ((flags & DAQ_TX_EVENT) != 0U)
+        {
+            (void)daq_service_tx(&daq);
+        }
     }
     /* USER CODE END 5 */
 }

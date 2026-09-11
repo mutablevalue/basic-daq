@@ -21,6 +21,7 @@ extern TIM_HandleTypeDef htim3;
 
 // signalled to the consumer when there is work to do
 #define DAQ_TX_EVENT 0x01U
+#define DAQ_RX_EVENT 0x02U
 
 // samples coalesced into a single transmit
 #define DAQ_TX_FRAME_SAMPLES 32U
@@ -44,6 +45,7 @@ DaqStatus daq_store_sample(Daq *daq, const DAQSample *sample);
 // oldest sample, removed from the queue
 DaqStatus daq_take_sample(Daq *daq, DAQSample *sample);
 
+// sends sample with uart
 uint32_t daq_count(const Daq *daq);
 
 uint32_t daq_capacity(const Daq *daq);

@@ -20,4 +20,16 @@ bool daq_uart_busy(void);
 // daq_uart_busy goes false
 DaqStatus daq_uart_send(const uint8_t *data, uint16_t length);
 
+// the task to signal when bytes arrive
+void daq_uart_set_rx_consumer(osThreadId_t task, uint32_t event);
+
+// arms the circular receive, call once and only after the consumer is set
+DaqStatus daq_uart_receive_start(void);
+
+// consumer side only, never call this from an ISR
+DaqStatus daq_uart_receive(uint8_t *destination, uint16_t length,
+                           uint16_t *received);
+
+uint32_t daq_uart_receive_error_count(void);
+
 #endif
