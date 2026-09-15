@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/DAQ/daq.c
     Core/Src/DAQ/ringbuffer.c
     Core/Src/DAQ/uart.c
+    Core/Src/DAQ/can.c
 )
 
 # Add include paths

@@ -23,8 +23,15 @@ extern TIM_HandleTypeDef htim3;
 #define DAQ_TX_EVENT 0x01U
 #define DAQ_RX_EVENT 0x02U
 
+// one word carries them all, so every event needs a bit of its own
+#define DAQ_CAN_TX_EVENT 0x04U
+#define DAQ_CAN_RX_EVENT 0x08U
+
 // samples coalesced into a single transmit
 #define DAQ_TX_FRAME_SAMPLES 32U
+
+// 9 * 7 bytes is 63, the most that fits a 64 byte can fd frame
+#define DAQ_CAN_FRAME_SAMPLES 9U
 
 typedef struct
 {

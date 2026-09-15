@@ -1,12 +1,16 @@
+#include "can.h"
 #include "daq.h"
 #include "timer.h"
-#include "uart.h"
 
 // DMA target -> not volatile
 static uint16_t adcBuf[ADC_BUF_LEN];
 
 // samples are popped straight into the frame,
-static DAQSample daqTxBuf[DAQ_TX_FRAME_SAMPLES];
+static DAQSample canTxBuf[DAQ_CAN_FRAME_SAMPLES];
+
+// a rejected frame would drop the 9 samples already popped for it, so they
+// stay here and the next call retries them before taking any more
+static uint32_t canTxPending = 0U;
 
 // set by daq_acquire_start, read by the DMA callbacks
 static Daq *acquireTarget = NULL;
@@ -182,6 +186,12 @@ DaqStatus daq_acquire_start(Daq *daq)
     return DAQ_OK;
 }
 
+static DaqStatus daq_send_can_frame(uint32_t count)
+{
+    return daq_can_send(DAQ_CAN_SAMPLE_ID, (const uint8_t *)canTxBuf,
+                        (uint8_t)(count * sizeof(DAQSample)));
+}
+
 DaqStatus daq_service_tx(Daq *daq)
 {
     if (daq == NULL)
@@ -194,30 +204,52 @@ DaqStatus daq_service_tx(Daq *daq)
         return DAQ_ERR_NOT_INITIALIZED;
     }
 
-    if (daq_uart_busy())
+    // the samples a rejected frame was holding, retried before any new ones
+    if (canTxPending > 0U)
     {
-        return DAQ_ERR_TX_BUSY;
-    }
-
-    uint32_t count = 0U;
-    while (count < DAQ_TX_FRAME_SAMPLES)
-    {
-        if (daq_take_sample(daq, &daqTxBuf[count]) != DAQ_OK)
+        if (daq_send_can_frame(canTxPending) != DAQ_OK)
         {
-            break;
+            return DAQ_ERR_TX_BUSY;
         }
 
-        count++;
+        canTxPending = 0U;
     }
 
-    if (count == 0U)
+    bool sent = false;
+
+    // one event brings more samples than a single frame carries
+    for (;;)
     {
-        return DAQ_ERR_EMPTY;
-    }
+        uint32_t count = 0U;
+        while (count < DAQ_CAN_FRAME_SAMPLES)
+        {
+            if (daq_take_sample(daq, &canTxBuf[count]) != DAQ_OK)
+            {
+                break;
+            }
 
-    // on failure these samples are already out of the ring and are lost
-    return daq_uart_send((const uint8_t *)daqTxBuf,
-                         (uint16_t)(count * sizeof(DAQSample)));
+            count++;
+        }
+
+        if (count == 0U)
+        {
+            if (!sent)
+            {
+                return DAQ_ERR_EMPTY;
+            }
+
+            return DAQ_OK;
+        }
+
+        if (daq_send_can_frame(count) != DAQ_OK)
+        {
+            // hold them instead of dropping 9, the tx event retries the frame
+            canTxPending = count;
+            return DAQ_ERR_TX_BUSY;
+        }
+
+        sent = true;
+    }
 }
 
 // first half settled, the DMA has moved on to the second

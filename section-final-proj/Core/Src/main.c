@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "can.h"
 #include "daq.h"
 #include "uart.h"
 
@@ -45,6 +46,8 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
+
+FDCAN_HandleTypeDef hfdcan1;
 
 UART_HandleTypeDef hlpuart1;
 DMA_HandleTypeDef hdma_lpuart1_tx;
@@ -76,6 +79,7 @@ static void MX_LPUART1_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_FDCAN1_Init(void);
 void TxTask(void *argument);
 
 /* USER CODE BEGIN PFP */
@@ -93,6 +97,17 @@ static void DrainRx(void)
     while (daq_uart_receive(command, DAQ_RX_CHUNK_LENGTH, &count) == DAQ_OK)
     {
         (void)count; // framing goes here
+    }
+}
+
+static void DrainCanRx(void)
+{
+    DaqCanFrame frame;
+
+    // one interrupt can stand for several frames, same as the uart side
+    while (daq_can_receive(&frame) == DAQ_OK)
+    {
+        (void)frame; // decoding goes here
     }
 }
 /* USER CODE END 0 */
@@ -132,6 +147,7 @@ int main(void)
     MX_TIM2_Init();
     MX_ADC1_Init();
     MX_TIM3_Init();
+    MX_FDCAN1_Init();
     /* USER CODE BEGIN 2 */
     if (daq_init(&daq, daqSamples, DAQ_BUFFER_LEN) != DAQ_OK)
     {
@@ -302,6 +318,47 @@ static void MX_ADC1_Init(void)
     /* USER CODE BEGIN ADC1_Init 2 */
 
     /* USER CODE END ADC1_Init 2 */
+}
+
+/**
+ * @brief FDCAN1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_FDCAN1_Init(void)
+{
+    /* USER CODE BEGIN FDCAN1_Init 0 */
+
+    /* USER CODE END FDCAN1_Init 0 */
+
+    /* USER CODE BEGIN FDCAN1_Init 1 */
+
+    /* USER CODE END FDCAN1_Init 1 */
+    hfdcan1.Instance = FDCAN1;
+    hfdcan1.Init.ClockDivider = FDCAN_CLOCK_DIV1;
+    hfdcan1.Init.FrameFormat = FDCAN_FRAME_FD_BRS;
+    hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
+    hfdcan1.Init.AutoRetransmission = ENABLE;
+    hfdcan1.Init.TransmitPause = DISABLE;
+    hfdcan1.Init.ProtocolException = DISABLE;
+    hfdcan1.Init.NominalPrescaler = 10;
+    hfdcan1.Init.NominalSyncJumpWidth = 7;
+    hfdcan1.Init.NominalTimeSeg1 = 26;
+    hfdcan1.Init.NominalTimeSeg2 = 7;
+    hfdcan1.Init.DataPrescaler = 10;
+    hfdcan1.Init.DataSyncJumpWidth = 3;
+    hfdcan1.Init.DataTimeSeg1 = 13;
+    hfdcan1.Init.DataTimeSeg2 = 3;
+    hfdcan1.Init.StdFiltersNbr = 1;
+    hfdcan1.Init.ExtFiltersNbr = 0;
+    hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
+    if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /* USER CODE BEGIN FDCAN1_Init 2 */
+
+    /* USER CODE END FDCAN1_Init 2 */
 }
 
 /**
@@ -520,6 +577,15 @@ void TxTask(void *argument)
     daq_uart_set_consumer(txTaskHandle, DAQ_TX_EVENT);
     daq_uart_set_rx_consumer(txTaskHandle, DAQ_RX_EVENT);
 
+    daq_can_set_tx_consumer(txTaskHandle, DAQ_CAN_TX_EVENT);
+    daq_can_set_rx_consumer(txTaskHandle, DAQ_CAN_RX_EVENT);
+
+    // consumers first, the interrupt goes live at the end of this call
+    if (daq_can_start() != DAQ_OK)
+    {
+        Error_Handler();
+    }
+
     // armed before acquisition so a byte arriving first still has a consumer
     if (daq_uart_receive_start() != DAQ_OK)
     {
@@ -534,8 +600,10 @@ void TxTask(void *argument)
 
     for (;;)
     {
-        uint32_t flags = osThreadFlagsWait(DAQ_TX_EVENT | DAQ_RX_EVENT,
-                                           osFlagsWaitAny, osWaitForever);
+        uint32_t flags =
+            osThreadFlagsWait(DAQ_TX_EVENT | DAQ_RX_EVENT | DAQ_CAN_TX_EVENT |
+                                  DAQ_CAN_RX_EVENT,
+                              osFlagsWaitAny, osWaitForever);
 
         // the failure codes share the word with the flags
         if ((flags & osFlagsError) != 0U)
@@ -548,7 +616,13 @@ void TxTask(void *argument)
             DrainRx();
         }
 
-        if ((flags & DAQ_TX_EVENT) != 0U)
+        if ((flags & DAQ_CAN_RX_EVENT) != 0U)
+        {
+            DrainCanRx();
+        }
+
+        // the can event means a rejected frame can go out now
+        if ((flags & (DAQ_TX_EVENT | DAQ_CAN_TX_EVENT)) != 0U)
         {
             (void)daq_service_tx(&daq);
         }
